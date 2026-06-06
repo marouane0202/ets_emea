@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  mongodb:
+    image: mongo:7.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: app
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+  backend:
+    build:
+      context: ./reservation-backend
+      dockerfile: Dockerfile
+    depends_on:
+      - mongodb
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_DB: app
+      APP_ENV: dev
+      APP_SECRET: change_me
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./reservation-backend:/var/www/html:cached
+
+  frontend:
+    build:
+      context: ./reservation-frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./reservation-frontend:/usr/src/app:cached
+      - /usr/src/app/node_modules
+      - /usr/src/app/.next
+
+volumes:
+  mongodb_data:

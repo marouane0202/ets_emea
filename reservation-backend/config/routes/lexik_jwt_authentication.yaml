@@ -1,0 +1,4 @@
+api_login_check:
+    path: /api/auth/login
+    controller: App\Controller\AuthController::login
+    methods: [POST]
