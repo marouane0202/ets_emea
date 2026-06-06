@@ -23,38 +23,45 @@ class SessionController extends AbstractController
         $showAll = $request->query->getBoolean('all', false);
         $isAdmin = $this->isGranted('ROLE_ADMIN');
 
+        // Load all reservations in one query; sessions are already in the identity map
+        // so getSession() calls inside the loop hit no extra queries.
+        $allReservations = $dm->getRepository(Reservation::class)->findAll();
+
+        $countMap = [];
+        foreach ($allReservations as $reservation) {
+            $sid = $reservation->getSession()?->getId();
+            if ($sid !== null) {
+                $countMap[$sid] = ($countMap[$sid] ?? 0) + 1;
+            }
+        }
+
         $payload = [];
         foreach ($sessions as $session) {
-            // Availability is derived from reservations instead of stored, so it stays accurate after bookings change.
-            $reservations = $dm->getRepository(Reservation::class)->findBy(['session' => $session]);
-            $reservedCount = count($reservations);
+            $reservedCount  = $countMap[$session->getId()] ?? 0;
             $availableSeats = $session->getNumberOfSeats() ?? 0;
             $availableSpaces = max(0, $availableSeats - $reservedCount);
 
-            // Admin dashboards need full visibility, including sessions that are already full.
             if ($showAll && $isAdmin) {
                 $payload[] = [
-                    'id' => $session->getId(),
-                    'language' => $session->getLanguage(),
-                    'date' => $session->getDate()?->format('Y-m-d'),
-                    'time' => $session->getTime(),
-                    'location' => $session->getLocation(),
-                    'numberOfSeats' => $session->getNumberOfSeats(),
+                    'id'             => $session->getId(),
+                    'language'       => $session->getLanguage(),
+                    'date'           => $session->getDate()?->format('Y-m-d'),
+                    'time'           => $session->getTime(),
+                    'location'       => $session->getLocation(),
+                    'numberOfSeats'  => $session->getNumberOfSeats(),
                     'availableSpaces' => $availableSpaces,
                 ];
-
                 continue;
             }
 
-            // Regular booking screens only receive sessions that still have at least one open seat.
             if ($reservedCount < $availableSeats) {
                 $payload[] = [
-                    'id' => $session->getId(),
-                    'language' => $session->getLanguage(),
-                    'date' => $session->getDate()?->format('Y-m-d'),
-                    'time' => $session->getTime(),
-                    'location' => $session->getLocation(),
-                    'numberOfSeats' => $session->getNumberOfSeats(),
+                    'id'             => $session->getId(),
+                    'language'       => $session->getLanguage(),
+                    'date'           => $session->getDate()?->format('Y-m-d'),
+                    'time'           => $session->getTime(),
+                    'location'       => $session->getLocation(),
+                    'numberOfSeats'  => $session->getNumberOfSeats(),
                     'availableSpaces' => $availableSpaces,
                 ];
             }
@@ -68,20 +75,22 @@ class SessionController extends AbstractController
     public function create(Request $request, DocumentManager $dm): JsonResponse
     {
         $data = json_decode($request->getContent(), true);
-        // Require a JSON object so validation below can safely inspect fields.
         if (!is_array($data)) {
             return new JsonResponse(['error' => 'Invalid JSON body'], Response::HTTP_BAD_REQUEST);
         }
 
         foreach (['language', 'date', 'time', 'location', 'numberOfSeats'] as $field) {
-            // Missing or blank schedule fields would produce sessions users cannot understand or book reliably.
             if (!array_key_exists($field, $data) || (empty($data[$field]) && $data[$field] !== 0)) {
                 return new JsonResponse(['error' => sprintf('Missing required field: %s', $field)], Response::HTTP_BAD_REQUEST);
             }
         }
 
+        $seats = (int) $data['numberOfSeats'];
+        if ($seats < 1) {
+            return new JsonResponse(['error' => 'numberOfSeats must be at least 1'], Response::HTTP_BAD_REQUEST);
+        }
+
         try {
-            // Normalize incoming dates to DateTimeImmutable so all responses can format dates consistently.
             $date = new \DateTimeImmutable($data['date']);
         } catch (\Exception $e) {
             return new JsonResponse(['error' => 'Invalid date format, expected YYYY-MM-DD'], Response::HTTP_BAD_REQUEST);
@@ -92,14 +101,14 @@ class SessionController extends AbstractController
             ->setDate($date)
             ->setTime((string) $data['time'])
             ->setLocation((string) $data['location'])
-            ->setNumberOfSeats((int) $data['numberOfSeats']);
+            ->setNumberOfSeats($seats);
 
         $dm->persist($session);
         $dm->flush();
 
         return new JsonResponse([
             'status' => 'Session created',
-            'id' => $session->getId(),
+            'id'     => $session->getId(),
         ], Response::HTTP_CREATED);
     }
 
@@ -108,25 +117,21 @@ class SessionController extends AbstractController
     public function update(string $id, Request $request, DocumentManager $dm): JsonResponse
     {
         $session = $dm->getRepository(Session::class)->find($id);
-        // Updates must target an existing session; otherwise the admin UI would appear to save phantom data.
         if (!$session) {
             return new JsonResponse(['error' => 'Session not found'], Response::HTTP_NOT_FOUND);
         }
 
         $data = json_decode($request->getContent(), true);
-        // Partial updates still need a JSON object so each optional field can be checked safely.
         if (!is_array($data)) {
             return new JsonResponse(['error' => 'Invalid JSON body'], Response::HTTP_BAD_REQUEST);
         }
 
-        // Only mutate fields that were submitted, allowing the frontend to perform partial edits.
         if (isset($data['language'])) {
             $session->setLanguage((string) $data['language']);
         }
 
         if (isset($data['date'])) {
             try {
-                // Validate date edits before flushing so an invalid date never overwrites the previous schedule.
                 $session->setDate(new \DateTimeImmutable($data['date']));
             } catch (\Exception $e) {
                 return new JsonResponse(['error' => 'Invalid date format, expected YYYY-MM-DD'], Response::HTTP_BAD_REQUEST);
@@ -142,7 +147,11 @@ class SessionController extends AbstractController
         }
 
         if (isset($data['numberOfSeats'])) {
-            $session->setNumberOfSeats((int) $data['numberOfSeats']);
+            $seats = (int) $data['numberOfSeats'];
+            if ($seats < 1) {
+                return new JsonResponse(['error' => 'numberOfSeats must be at least 1'], Response::HTTP_BAD_REQUEST);
+            }
+            $session->setNumberOfSeats($seats);
         }
 
         $dm->flush();
@@ -155,9 +164,14 @@ class SessionController extends AbstractController
     public function delete(string $id, DocumentManager $dm): JsonResponse
     {
         $session = $dm->getRepository(Session::class)->find($id);
-        // Deleting a missing session should be explicit so the admin knows nothing changed.
         if (!$session) {
             return new JsonResponse(['error' => 'Session not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        // Remove all reservations for this session before deleting to avoid orphaned documents.
+        $orphans = $dm->getRepository(Reservation::class)->findBy(['session' => $session]);
+        foreach ($orphans as $orphan) {
+            $dm->remove($orphan);
         }
 
         $dm->remove($session);

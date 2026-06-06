@@ -6,6 +6,7 @@ use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
 
 #[MongoDB\Document(collection: "users")]
+#[MongoDB\Index(keys: ["email" => "asc"], options: ["unique" => true])]
 class User implements UserInterface, PasswordAuthenticatedUserInterface
 {
     #[MongoDB\Id]

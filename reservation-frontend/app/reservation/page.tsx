@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useIsAdminUser } from "@/app/auth/AuthHooks";
 import { ReservationService, type Reservation } from "./ReservationService";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 export default function ReservationsPage() {
   const isAdmin = useIsAdminUser();
@@ -15,13 +20,10 @@ export default function ReservationsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function loadReservations() {
-      // Reset loading and error state for each page change so pagination failures are visible.
+    async function load() {
       setLoading(true);
       setError(null);
-
       try {
-        // The service applies client-side pagination to the backend reservation list.
         const result = await ReservationService.getReservations(page, pageSize);
         setReservations(result.reservations);
         setTotal(result.total);
@@ -31,171 +33,139 @@ export default function ReservationsPage() {
         setLoading(false);
       }
     }
-
-    loadReservations();
+    load();
   }, [page, pageSize]);
 
-  // Calculate from backend total so pagination controls match the filtered list for the current user/admin.
   const totalPages = Math.ceil(total / pageSize);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-4xl font-semibold text-white">
-              {isAdmin ? "User Reservations" : "My Reservations"}
-            </h1>
-            <p className="mt-2 text-slate-400">
-              {isAdmin
-                ? "Showing sessions booked by users."
-                : "View and manage your session reservations."}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href="/profile"
-              className="inline-flex items-center justify-center rounded-3xl border border-slate-700 bg-slate-800 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700"
-            >
-              Profile
-            </Link>
-
-            {isAdmin ? (
-              <Link
-                href="/admin/sessions"
-                className="inline-flex items-center justify-center rounded-3xl border border-slate-700 bg-slate-800 px-6 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-700"
-              >
-                Manage Sessions
-              </Link>
-            ) : (
-              <Link
-                href="/reservation/book"
-                className="inline-flex items-center justify-center rounded-3xl bg-sky-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400"
-              >
-                Book Session
-              </Link>
-            )}
-          </div>
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {isAdmin ? "User Reservations" : "My Reservations"}
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            {isAdmin ? "All bookings made by users." : "View and manage your session bookings."}
+          </p>
         </div>
-
-        {error && (
-          <div className="mb-6 rounded-3xl bg-rose-500/10 p-4 text-rose-300 ring-1 ring-rose-500/20">
-            {error}
-          </div>
+        {!isAdmin && (
+          <Link href="/reservation/book" className={buttonVariants()}>
+            Book a session
+          </Link>
         )}
-
-        {loading ? (
-          <div className="rounded-3xl border border-slate-700 bg-slate-900/50 p-12 text-center">
-            <p className="text-slate-300">Loading reservations...</p>
-          </div>
-        ) : reservations.length === 0 ? (
-          isAdmin ? (
-            <div className="rounded-3xl border border-slate-700 bg-slate-900/50 p-12 text-center">
-              <p className="text-slate-300">No user reservations found.</p>
-              <p className="mt-4 text-sm text-slate-400">
-                Admins cannot book or cancel user reservations here. Use the admin dashboard to manage sessions.
-              </p>
-              <Link
-                href="/admin/sessions"
-                className="mt-4 inline-flex items-center justify-center rounded-3xl bg-sky-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400"
-              >
-                Go to Admin Sessions
-              </Link>
-            </div>
-          ) : (
-            <div className="rounded-3xl border border-slate-700 bg-slate-900/50 p-12 text-center">
-              <p className="text-slate-300">No reservations found.</p>
-              <Link
-                href="/reservation/book"
-                className="mt-4 inline-flex items-center justify-center rounded-3xl bg-sky-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400"
-              >
-                Book your first session
-              </Link>
-            </div>
-          )
-        ) : (
-          <>
-            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              {reservations.map((reservation) => (
-                <div
-                  key={reservation.id}
-                  className="rounded-3xl border border-slate-700 bg-slate-900/50 p-5 transition hover:border-slate-600 hover:bg-slate-900/60"
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Reserved at</p>
-                      <p className="mt-2 text-base font-semibold text-slate-100">
-                        {new Date(reservation.reservedAt).toLocaleString()}
-                      </p>
-                    </div>
-                    <span className="inline-flex rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-300">
-                      Confirmed
-                    </span>
-                  </div>
-                  {isAdmin && reservation.bookedBy && (
-                    <div className="mt-4 rounded-3xl bg-slate-900/80 px-4 py-3 text-sm text-slate-300">
-                      <p className="font-semibold text-slate-100">Booked by</p>
-                      <p>{reservation.bookedBy.name || reservation.bookedBy.email}</p>
-                    </div>
-                  )}
-
-                  <div className="mt-6 space-y-4">
-                    <div>
-                      <p className="text-sm text-slate-400">Session</p>
-                      <p className="mt-1 text-lg font-semibold text-white">{reservation.session?.language || "N/A"}</p>
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <p className="text-sm text-slate-400">Date</p>
-                        <p className="mt-1 text-base font-medium text-slate-100">{reservation.session?.date || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-slate-400">Time</p>
-                        <p className="mt-1 text-base font-medium text-slate-100">{reservation.session?.time || "N/A"}</p>
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-sm text-slate-400">Location</p>
-                      <p className="mt-1 text-base font-medium text-slate-100">{reservation.session?.location || "N/A"}</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-6 flex flex-wrap items-center gap-3">
-                    <Link
-                      href={`/reservation/${reservation.id}`}
-                      className="inline-flex items-center justify-center rounded-3xl bg-sky-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400"
-                    >
-                      Details
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {totalPages > 1 && (
-              <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-800 disabled:opacity-50"
-                >
-                  Previous
-                </button>
-                <div className="text-sm text-slate-400">
-                  Page {page} of {totalPages}
-                </div>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-800 disabled:opacity-50"
-                >
-                  Next
-                </button>
-              </div>
-            )}
-          </>
+        {isAdmin && (
+          <Link href="/admin/sessions" className={buttonVariants({ variant: "outline" })}>
+            Manage sessions
+          </Link>
         )}
       </div>
+
+      {error && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {loading ? (
+        <Card>
+          <CardContent className="py-16 text-center text-sm text-gray-500">
+            Loading reservations...
+          </CardContent>
+        </Card>
+      ) : reservations.length === 0 ? (
+        <Card>
+          <CardContent className="py-16 text-center">
+            <p className="text-sm text-gray-500">
+              {isAdmin ? "No user reservations found." : "You have no reservations yet."}
+            </p>
+            {!isAdmin && (
+              <Link href="/reservation/book" className={cn(buttonVariants(), "mt-4 inline-flex")}>
+                Book your first session
+              </Link>
+            )}
+            {isAdmin && (
+              <Link href="/admin/sessions" className={cn(buttonVariants({ variant: "outline" }), "mt-4 inline-flex")}>
+                Go to session management
+              </Link>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {reservations.map((reservation) => (
+              <Card key={reservation.id} className="flex flex-col">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle className="text-base">
+                      {reservation.session?.language ?? "Session removed"}
+                    </CardTitle>
+                    <Badge variant="success">Confirmed</Badge>
+                  </div>
+                  {isAdmin && reservation.bookedBy && (
+                    <CardDescription>
+                      Booked by {reservation.bookedBy.name || reservation.bookedBy.email}
+                    </CardDescription>
+                  )}
+                </CardHeader>
+                <CardContent className="flex flex-1 flex-col gap-3">
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                    <div>
+                      <dt className="text-gray-500">Date</dt>
+                      <dd className="font-medium text-gray-900">{reservation.session?.date ?? "—"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Time</dt>
+                      <dd className="font-medium text-gray-900">{reservation.session?.time ?? "—"}</dd>
+                    </div>
+                    <div className="col-span-2">
+                      <dt className="text-gray-500">Location</dt>
+                      <dd className="font-medium text-gray-900">{reservation.session?.location ?? "—"}</dd>
+                    </div>
+                    <div className="col-span-2">
+                      <dt className="text-gray-500">Reserved</dt>
+                      <dd className="font-medium text-gray-900">
+                        {new Date(reservation.reservedAt).toLocaleString()}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="mt-auto pt-2">
+                    <Link
+                      href={`/reservation/${reservation.id}`}
+                      className={buttonVariants({ variant: "outline", size: "sm" })}
+                    >
+                      View details
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="mt-6 flex items-center justify-center gap-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+              >
+                Previous
+              </Button>
+              <span className="text-sm text-gray-500">Page {page} of {totalPages}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

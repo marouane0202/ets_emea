@@ -50,12 +50,12 @@ export type SessionPayload = {
 export const ReservationService = {
   async getReservations(page: number = 1, limit: number = 10): Promise<{ reservations: Reservation[]; total: number; page: number; pageSize: number }> {
     const token = await getAuthToken();
-    // Throw before fetching so callers can show a clear auth error instead of a generic network failure.
     if (!token) {
       throw new Error("Not authenticated");
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/reservations`, {
+    const url = `${API_BASE_URL}/api/reservations?page=${page}&limit=${limit}`;
+    const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -67,16 +67,12 @@ export const ReservationService = {
     }
 
     const data = await response.json();
-    // The backend returns a flat array, so pagination is applied locally for the current UI.
-    const total = Array.isArray(data) ? data.length : 0;
-    const startIndex = (page - 1) * limit;
-    const paginatedData = Array.isArray(data) ? data.slice(startIndex, startIndex + limit) : [];
 
     return {
-      reservations: paginatedData,
-      total,
-      page,
-      pageSize: limit,
+      reservations: data.data ?? [],
+      total: data.total ?? 0,
+      page: data.page ?? page,
+      pageSize: data.pageSize ?? limit,
     };
   },
 

@@ -18,55 +18,91 @@ class ReservationController extends AbstractController
 {
     #[Route('', name: 'list', methods: ['GET'])]
     #[IsGranted('IS_AUTHENTICATED_FULLY')]
-    public function list(DocumentManager $dm): JsonResponse
+    public function list(Request $request, DocumentManager $dm): JsonResponse
     {
         $user = $this->getUser();
-        // Controller methods may still be called in tests or misconfigured routes, so verify the security user shape.
         if (!$user instanceof User) {
             return new JsonResponse(['error' => 'Unauthorized'], Response::HTTP_UNAUTHORIZED);
         }
 
+        $page  = max(1, (int) $request->query->get('page', 1));
+        $limit = min(50, max(1, (int) $request->query->get('limit', 10)));
+
         $isAdmin = $this->isGranted('ROLE_ADMIN');
+
         if ($isAdmin) {
-            // Admins see user bookings for oversight, but admin-owned reservations are hidden because admins cannot book.
-            $reservations = $dm->getRepository(Reservation::class)->findAll();
-            $reservations = array_filter($reservations, static fn (Reservation $reservation) =>
-                ($reservation->getUser()?->getRoles() !== null)
-                && in_array('ROLE_USER', $reservation->getUser()->getRoles(), true)
-                && !in_array('ROLE_ADMIN', $reservation->getUser()->getRoles(), true)
+            $allReservations = iterator_to_array(
+                $dm->createQueryBuilder(Reservation::class)->getQuery()->execute()
             );
+
+            // Batch-load all referenced users in one extra query to avoid N+1.
+            $userIds = array_unique(array_filter(array_map(
+                static fn(Reservation $r) => $r->getUser()?->getId(),
+                $allReservations
+            )));
+            if ($userIds) {
+                iterator_to_array(
+                    $dm->createQueryBuilder(User::class)
+                        ->field('id')->in(array_values($userIds))
+                        ->getQuery()->execute()
+                );
+            }
+
+            $reservations = array_values(array_filter(
+                $allReservations,
+                static fn(Reservation $r) => $r->getUser() !== null
+                    && in_array('ROLE_USER', $r->getUser()->getRoles(), true)
+                    && !in_array('ROLE_ADMIN', $r->getUser()->getRoles(), true)
+            ));
+
+            $total = count($reservations);
+            $reservations = array_slice($reservations, ($page - 1) * $limit, $limit);
         } else {
-            // Regular users should only see their own reservation history.
-            $reservations = $dm->getRepository(Reservation::class)->findBy(['user' => $user]);
+            $total = $dm->createQueryBuilder(Reservation::class)
+                ->field('user')->equals($user)
+                ->count()
+                ->getQuery()
+                ->execute();
+
+            $reservations = $dm->createQueryBuilder(Reservation::class)
+                ->field('user')->equals($user)
+                ->skip(($page - 1) * $limit)
+                ->limit($limit)
+                ->getQuery()
+                ->execute();
         }
 
-        // Shape MongoDB documents into stable JSON so the frontend does not depend on ODM internals.
         $payload = array_map(static function (Reservation $reservation) use ($isAdmin) {
             $session = $reservation->getSession();
             $data = [
-                'id' => $reservation->getId(),
+                'id'         => $reservation->getId(),
                 'reservedAt' => $reservation->getReservedAt()->format('Y-m-d H:i:s'),
-                'session' => $session ? [
-                    'id' => $session->getId(),
-                    'language' => $session->getLanguage(),
-                    'date' => $session->getDate()?->format('Y-m-d'),
-                    'time' => $session->getTime(),
-                    'location' => $session->getLocation(),
+                'session'    => $session ? [
+                    'id'            => $session->getId(),
+                    'language'      => $session->getLanguage(),
+                    'date'          => $session->getDate()?->format('Y-m-d'),
+                    'time'          => $session->getTime(),
+                    'location'      => $session->getLocation(),
                     'numberOfSeats' => $session->getNumberOfSeats(),
                 ] : null,
             ];
 
             if ($isAdmin && $reservation->getUser()) {
                 $data['bookedBy'] = [
-                    'name' => $reservation->getUser()->getName(),
+                    'name'  => $reservation->getUser()->getName(),
                     'email' => $reservation->getUser()->getEmail(),
                 ];
             }
 
             return $data;
-        }, $reservations);
+        }, is_array($reservations) ? $reservations : iterator_to_array($reservations));
 
-        return new JsonResponse($payload, Response::HTTP_OK);
+        return new JsonResponse([
+            'data'     => $payload,
+            'total'    => $total,
+            'page'     => $page,
+            'pageSize' => $limit,
+        ], Response::HTTP_OK);
     }
 
     #[Route('', name: 'book', methods: ['POST'])]
@@ -74,31 +110,26 @@ class ReservationController extends AbstractController
     public function book(Request $request, DocumentManager $dm): JsonResponse
     {
         $user = $this->getUser();
-        // Only authenticated document users can create reservations.
         if (!$user instanceof User) {
             return new JsonResponse(['error' => 'Unauthorized'], Response::HTTP_UNAUTHORIZED);
         }
 
         $data = json_decode($request->getContent(), true);
-        // A reservation is meaningless without a target session, so reject malformed bodies immediately.
         if (!is_array($data) || empty($data['sessionId'])) {
             return new JsonResponse(['error' => 'sessionId is required'], Response::HTTP_BAD_REQUEST);
         }
 
-        // Admins manage sessions and inspect user bookings; blocking booking keeps those roles separate.
         if ($this->isGranted('ROLE_ADMIN')) {
             return new JsonResponse(['error' => 'Admins cannot book sessions'], Response::HTTP_FORBIDDEN);
         }
 
         $session = $dm->getRepository(Session::class)->find($data['sessionId']);
-        // Booking an unknown session would create a dangling reference.
         if (!$session) {
             return new JsonResponse(['error' => 'Session not found'], Response::HTTP_NOT_FOUND);
         }
 
-        // Prevent the same user from consuming more than one seat in a single session.
         $existingReservation = $dm->getRepository(Reservation::class)->findOneBy([
-            'user' => $user,
+            'user'    => $user,
             'session' => $session,
         ]);
         if ($existingReservation) {
@@ -106,10 +137,9 @@ class ReservationController extends AbstractController
         }
 
         $currentBookings = $dm->getRepository(Reservation::class)->findBy(['session' => $session]);
-        $reservedCount = count($currentBookings);
-        $availableSeats = $session->getNumberOfSeats() ?? 0;
+        $reservedCount   = count($currentBookings);
+        $availableSeats  = $session->getNumberOfSeats() ?? 0;
 
-        // Count existing reservations before creating a new one so capacity cannot be exceeded.
         if ($reservedCount >= $availableSeats) {
             return new JsonResponse(['error' => 'No spaces available for this session'], Response::HTTP_CONFLICT);
         }
@@ -122,7 +152,7 @@ class ReservationController extends AbstractController
         $dm->flush();
 
         return new JsonResponse([
-            'status' => 'Session booked',
+            'status'        => 'Session booked',
             'reservationId' => $reservation->getId(),
         ], Response::HTTP_CREATED);
     }
@@ -132,18 +162,15 @@ class ReservationController extends AbstractController
     public function cancel(string $id, DocumentManager $dm): JsonResponse
     {
         $user = $this->getUser();
-        // Cancellation is tied to ownership, so anonymous or non-document users cannot proceed.
         if (!$user instanceof User) {
             return new JsonResponse(['error' => 'Unauthorized'], Response::HTTP_UNAUTHORIZED);
         }
 
         $reservation = $dm->getRepository(Reservation::class)->find($id);
-        // Return a clear 404 when the requested booking no longer exists.
         if (!$reservation) {
             return new JsonResponse(['error' => 'Reservation not found'], Response::HTTP_NOT_FOUND);
         }
 
-        // Users may only release their own seat; admins manage sessions through a separate workflow.
         if ($reservation->getUser()?->getId() !== $user->getId()) {
             return new JsonResponse(['error' => 'You can only cancel your own bookings'], Response::HTTP_FORBIDDEN);
         }

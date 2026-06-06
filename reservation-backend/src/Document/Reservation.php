@@ -5,8 +5,8 @@ namespace App\Document;
 use Doctrine\ODM\MongoDB\Mapping\Annotations as MongoDB;
 
 #[MongoDB\Document(collection: "reservations")]
-// Enforce unique compound index so a user cannot book the same session twice
-#[MongoDB\UniqueIndex(keys: ["sessionId" => "asc", "userId" => "asc"])]
+#[MongoDB\UniqueIndex(keys: ["session" => "asc", "user" => "asc"])]
+#[MongoDB\Index(keys: ["user" => "asc"])]
 class Reservation
 {
     #[MongoDB\Id]
