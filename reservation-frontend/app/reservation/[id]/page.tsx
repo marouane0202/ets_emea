@@ -5,6 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useIsAdminUser } from "@/app/auth/AuthHooks";
 import { ReservationService, type Reservation } from "../ReservationService";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function ReservationDetailsPage() {
   const params = useParams();
@@ -19,19 +23,14 @@ export default function ReservationDetailsPage() {
   const [cancelSuccess, setCancelSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    async function loadReservation() {
-      // There is no single-reservation endpoint, so load a large page and find the matching booking locally.
+    if (!reservationId) return;
+    async function load() {
       setLoading(true);
       setError(null);
-
       try {
         const result = await ReservationService.getReservations(1, 1000);
         const found = result.reservations.find((r) => r.id === reservationId);
-        if (!found) {
-          // Treat missing records as a user-facing not-found state instead of rendering empty details.
-          setError("Reservation not found");
-          return;
-        }
+        if (!found) { setError("Reservation not found"); return; }
         setReservation(found);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load reservation");
@@ -39,39 +38,42 @@ export default function ReservationDetailsPage() {
         setLoading(false);
       }
     }
-
-    if (reservationId) {
-      // Wait until Next route params are available before requesting data.
-      loadReservation();
-    }
+    load();
   }, [reservationId]);
+
+  async function handleCancel() {
+    setCancelError(null);
+    setCancelSuccess(null);
+    setCancelling(true);
+    try {
+      const result = await ReservationService.cancelReservation(reservationId);
+      if (!result.success) { setCancelError(result.message); return; }
+      setCancelSuccess(result.message);
+      setTimeout(() => router.push("/reservation"), 1200);
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : "Failed to cancel reservation");
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100">
-        <div className="mx-auto max-w-4xl px-4 py-8">
-          <div className="rounded-3xl border border-slate-700 bg-slate-900/50 p-12 text-center">
-            <p className="text-slate-300">Loading reservation details...</p>
-          </div>
-        </div>
+      <div className="mx-auto max-w-3xl px-4 py-8">
+        <Card><CardContent className="py-16 text-center text-sm text-gray-500">Loading reservation...</CardContent></Card>
       </div>
     );
   }
 
   if (error || !reservation) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100">
-        <div className="mx-auto max-w-4xl px-4 py-8">
-          <div className="rounded-3xl bg-rose-500/10 p-6 text-rose-300 ring-1 ring-rose-500/20">
-            {error || "Reservation not found"}
-          </div>
-          <Link
-            href="/reservation"
-            className="mt-6 inline-flex items-center justify-center rounded-3xl bg-sky-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400"
-          >
-            Back to Reservations
-          </Link>
-        </div>
+      <div className="mx-auto max-w-3xl px-4 py-8">
+        <Alert variant="destructive">
+          <AlertDescription>{error ?? "Reservation not found"}</AlertDescription>
+        </Alert>
+        <Link href="/reservation" className={`mt-4 inline-flex ${buttonVariants({ variant: "outline" })}`}>
+          Back to reservations
+        </Link>
       </div>
     );
   }
@@ -79,132 +81,65 @@ export default function ReservationDetailsPage() {
   const session = reservation.session;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
-        <Link
-          href="/reservation"
-          className="inline-flex items-center gap-2 text-sm font-medium text-sky-300 hover:text-sky-200"
-        >
-          ← Back to Reservations
+    <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+      <div className="mb-6">
+        <Link href="/reservation" className="text-sm font-medium text-gray-500 hover:text-gray-900">
+          ← Back to reservations
         </Link>
+      </div>
 
-        <div className="mt-8 rounded-3xl border border-slate-700 bg-slate-900/50 p-8">
-          <h1 className="text-3xl font-semibold text-white">Reservation Details</h1>
-
-          <div className="mt-8 grid grid-cols-1 gap-8 sm:grid-cols-2">
-            {/* Session Information */}
-            <div className="rounded-2xl bg-slate-800/50 p-6">
-              <h2 className="text-lg font-semibold text-slate-200">Session Information</h2>
-              <div className="mt-4 space-y-4">
-                <div>
-                  <p className="text-sm text-slate-400">Language</p>
-                  <p className="mt-1 text-base font-medium text-slate-100">{session?.language || "N/A"}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-400">Date</p>
-                  <p className="mt-1 text-base font-medium text-slate-100">{session?.date || "N/A"}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-400">Time</p>
-                  <p className="mt-1 text-base font-medium text-slate-100">{session?.time || "N/A"}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-400">Location</p>
-                  <p className="mt-1 text-base font-medium text-slate-100">{session?.location || "N/A"}</p>
-                </div>
-              </div>
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle>Reservation Details</CardTitle>
+            <Badge variant="success">Confirmed</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-6 sm:grid-cols-2">
+            <div>
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Session</h3>
+              <dl className="space-y-2 text-sm">
+                <div><dt className="text-gray-500">Language</dt><dd className="mt-0.5 font-medium text-gray-900">{session?.language ?? "—"}</dd></div>
+                <div><dt className="text-gray-500">Date</dt><dd className="mt-0.5 font-medium text-gray-900">{session?.date ?? "—"}</dd></div>
+                <div><dt className="text-gray-500">Time</dt><dd className="mt-0.5 font-medium text-gray-900">{session?.time ?? "—"}</dd></div>
+                <div><dt className="text-gray-500">Location</dt><dd className="mt-0.5 font-medium text-gray-900">{session?.location ?? "—"}</dd></div>
+                <div><dt className="text-gray-500">Total seats</dt><dd className="mt-0.5 font-medium text-gray-900">{session?.numberOfSeats ?? "—"}</dd></div>
+              </dl>
             </div>
-
-            {/* Reservation Information */}
-            <div className="rounded-2xl bg-slate-800/50 p-6">
-              <h2 className="text-lg font-semibold text-slate-200">Reservation Information</h2>
-              <div className="mt-4 space-y-4">
-                <div>
-                  <p className="text-sm text-slate-400">Reservation ID</p>
-                  <p className="mt-1 text-base font-medium text-slate-100 break-all">{reservation.id}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-400">Reserved At</p>
-                  <p className="mt-1 text-base font-medium text-slate-100">
-                    {new Date(reservation.reservedAt).toLocaleString()}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-400">Total Seats</p>
-                  <p className="mt-1 text-base font-medium text-slate-100">{session?.numberOfSeats || "N/A"}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-400">Status</p>
-                  <p className="mt-1 inline-flex rounded-full bg-emerald-500/10 px-3 py-1 text-sm font-medium text-emerald-300">
-                    Confirmed
-                  </p>
-                </div>
-              </div>
+            <div>
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Booking</h3>
+              <dl className="space-y-2 text-sm">
+                <div><dt className="text-gray-500">Reservation ID</dt><dd className="mt-0.5 break-all font-mono text-xs text-gray-700">{reservation.id}</dd></div>
+                <div><dt className="text-gray-500">Reserved at</dt><dd className="mt-0.5 font-medium text-gray-900">{new Date(reservation.reservedAt).toLocaleString()}</dd></div>
+              </dl>
             </div>
           </div>
 
           {cancelError && (
-            <div className="mt-6 rounded-3xl bg-rose-500/10 p-4 text-rose-300 ring-1 ring-rose-500/20">
-              {cancelError}
-            </div>
+            <Alert variant="destructive"><AlertDescription>{cancelError}</AlertDescription></Alert>
           )}
           {cancelSuccess && (
-            <div className="mt-6 rounded-3xl bg-emerald-500/10 p-4 text-emerald-300 ring-1 ring-emerald-500/20">
-              {cancelSuccess}
-            </div>
+            <Alert variant="success"><AlertDescription>{cancelSuccess}</AlertDescription></Alert>
           )}
 
-          <div className="mt-8 flex flex-col gap-4 sm:flex-row">
-            <Link
-              href="/reservation"
-              className="inline-flex items-center justify-center rounded-3xl border border-slate-700 px-6 py-3 text-sm font-semibold text-slate-300 transition hover:bg-slate-800"
-            >
-              Back to List
+          <div className="flex flex-wrap gap-3 border-t border-gray-100 pt-4">
+            <Link href="/reservation" className={buttonVariants({ variant: "outline" })}>
+              Back to list
             </Link>
             {!isAdmin && (
-              <Link
-                href="/reservation/book"
-                className="inline-flex items-center justify-center rounded-3xl bg-sky-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-sky-400"
-              >
-                Book Another Session
+              <Link href="/reservation/book" className={buttonVariants({ variant: "secondary" })}>
+                Book another
               </Link>
             )}
             {!isAdmin && (
-              <button
-                type="button"
-                disabled={cancelling}
-                onClick={async () => {
-                  // Clear previous cancellation messages so the current attempt has a single visible outcome.
-                  setCancelError(null);
-                  setCancelSuccess(null);
-                  setCancelling(true);
-
-                  try {
-                    const result = await ReservationService.cancelReservation(reservationId);
-                    if (!result.success) {
-                      // Preserve backend ownership/not-found errors for the detail page.
-                      setCancelError(result.message);
-                    } else {
-                      setCancelSuccess(result.message);
-                      // Redirect after a short confirmation because the canceled reservation no longer belongs in detail view.
-                      setTimeout(() => {
-                        router.push("/reservation");
-                      }, 1200);
-                    }
-                  } catch (err) {
-                    setCancelError(err instanceof Error ? err.message : "Failed to cancel reservation");
-                  } finally {
-                    setCancelling(false);
-                  }
-                }}
-                className="inline-flex items-center justify-center rounded-3xl bg-rose-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {cancelling ? "Cancelling..." : "Cancel Booking"}
-              </button>
+              <Button variant="destructive" disabled={cancelling} onClick={handleCancel}>
+                {cancelling ? "Cancelling..." : "Cancel booking"}
+              </Button>
             )}
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

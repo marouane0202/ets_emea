@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import AuthGuard from "./auth/AuthGuard";
+import Navbar from "@/components/Navbar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Reservation Auth",
-  description: "Login and register for the reservation system.",
+  title: "ETS Reservation System",
+  description: "Book and manage your training sessions.",
 };
 
 export default function RootLayout({
@@ -23,20 +24,15 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Wrap every route with AuthGuard so protected pages share one route-access rule.
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`}>
+      <body className="flex min-h-full flex-col bg-gray-50 antialiased">
         <AuthGuard>
-          <div className="flex min-h-screen flex-col">
-            <main className="flex-1">{children}</main>
-            <footer className="border-t border-slate-800 bg-slate-950 px-4 py-4 text-center text-sm text-slate-500">
-              Developed by ROUANE
-            </footer>
-          </div>
+          <Navbar />
+          <main className="flex-1">{children}</main>
+          <footer className="border-t border-gray-200 bg-white py-4 text-center text-xs text-gray-400">
+            Developed by ROUANE
+          </footer>
         </AuthGuard>
       </body>
     </html>

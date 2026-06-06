@@ -45,20 +45,27 @@ function getStoredToken(): string | null {
   return window.localStorage.getItem("reservation_token");
 }
 
-export function storeAuthToken(token: string) {
-  // Store in localStorage for client requests and in a cookie so Next proxy can protect routes.
+export async function storeAuthToken(token: string): Promise<void> {
   if (typeof window === "undefined") return;
 
+  // Keep in localStorage so authorizedRequest can attach it as a Bearer header.
   window.localStorage.setItem("reservation_token", token);
-  document.cookie = `reservation_token=${encodeURIComponent(token)}; path=/; max-age=86400; SameSite=Lax`;
+
+  // Set the httpOnly, Secure cookie via a server-side route so it is unreachable by JavaScript
+  // (the middleware reads this cookie to protect routes without exposing the token to the DOM).
+  await fetch("/api/auth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
 }
 
 export function clearAuthToken() {
-  // Clear both storage locations and notify subscribed components that auth state changed.
   if (typeof window === "undefined") return;
 
   window.localStorage.removeItem("reservation_token");
-  document.cookie = "reservation_token=; path=/; max-age=0; SameSite=Lax";
+  // Clear the httpOnly cookie via the server-side route (fire-and-forget is fine here).
+  fetch("/api/auth/token", { method: "DELETE" }).catch(() => {});
   window.dispatchEvent(new Event("reservation-auth-changed"));
 }
 

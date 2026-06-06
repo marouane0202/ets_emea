@@ -1,13 +1,12 @@
-version: "3.9"
-
 services:
   mongodb:
     image: mongo:7.0
     restart: unless-stopped
     environment:
-      MONGO_INITDB_DATABASE: app
-    ports:
-      - "27017:27017"
+      MONGO_INITDB_DATABASE: ${MONGODB_DB:-app}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_USERNAME:-}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD:-}
+    # No ports: mapping — MongoDB is internal only; expose only through the backend service.
     volumes:
       - mongodb_data:/data/db
 
@@ -18,10 +17,10 @@ services:
     depends_on:
       - mongodb
     environment:
-      MONGODB_URI: mongodb://mongodb:27017
-      MONGODB_DB: app
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongodb:27017}
+      MONGODB_DB: ${MONGODB_DB:-app}
       APP_ENV: dev
-      APP_SECRET: change_me
+      APP_SECRET: ${APP_SECRET:?APP_SECRET must be set in .env}
     ports:
       - "8000:8000"
     volumes:

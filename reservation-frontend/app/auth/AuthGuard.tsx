@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { isAuthenticatedUser } from "./AuthService";
 
@@ -14,23 +14,21 @@ export default function AuthGuard({ children }: AuthGuardProps) {
   const pathname = usePathname();
   const router = useRouter();
   const isPublicRoute = publicRoutes.has(pathname);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    // Redirect after hydration so browser-only token checks do not run during server rendering.
+    setMounted(true);
     if (!isPublicRoute && !isAuthenticatedUser()) {
       router.replace("/auth");
     }
   }, [isPublicRoute, router]);
 
-  if (isPublicRoute) {
-    // Public routes should render immediately even when there is no token.
-    return children;
-  }
+  // Render nothing until hydration is complete — both server and client agree on null.
+  if (!mounted) return null;
 
-  if (typeof window === "undefined" || !isAuthenticatedUser()) {
-    // Hide protected content while redirecting, preventing a flash of private UI.
-    return null;
-  }
+  if (isPublicRoute) return children;
+
+  if (!isAuthenticatedUser()) return null;
 
   return children;
 }
